@@ -9,7 +9,9 @@ from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 
-
+'''
+read_split_data 用于按比例分离训练集和验证集  输入一个大文件夹的文件路径，输出4个列表，分别存储训练集和验证集以及它们的标签
+'''
 def read_split_data(root: str, val_rate: float = 0.2):
     random.seed(0)  # 保证随机结果可复现
     assert os.path.exists(root), "dataset root: {} does not exist.".format(root)
@@ -120,7 +122,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
     loss_function = torch.nn.CrossEntropyLoss()
     accu_loss = torch.zeros(1).to(device)  # 累计损失
     accu_num = torch.zeros(1).to(device)   # 累计预测正确的样本数
-    optimizer.zero_grad()
+    optimizer.zero_grad()#清除之前学到的梯度参数
 
     sample_num = 0
     data_loader = tqdm(data_loader, file=sys.stdout)
@@ -131,7 +133,8 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
         pred = model(images.to(device))
         pred_classes = torch.max(pred, dim=1)[1]
         accu_num += torch.eq(pred_classes, labels.to(device)).sum()
-
+        print(pred)
+        print(labels.to(device))
         loss = loss_function(pred, labels.to(device))
         loss.backward()
         accu_loss += loss.detach()
@@ -144,7 +147,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
             print('WARNING: non-finite loss, ending training ', loss)
             sys.exit(1)
 
-        optimizer.step()
+        optimizer.step()#应用梯度
         optimizer.zero_grad()
 
     return accu_loss.item() / (step + 1), accu_num.item() / sample_num

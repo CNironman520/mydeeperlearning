@@ -5,6 +5,7 @@ import argparse
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
+import torchvision.datasets
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
@@ -12,17 +13,22 @@ from torchvision import transforms
 from my_dataset import MyDataSet
 from vit_model import vit_base_patch16_224_in21k as create_model
 from utils import read_split_data, train_one_epoch, evaluate
+import os
 
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
 def main(args):
+    current_path = os.getcwd()
+
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    print("当前文件路径：{0}，运行在{1}".format(current_path,device))
 
     if os.path.exists("./weights") is False:
         os.makedirs("./weights")
-
+    #实例化Tensorboard记录器
     tb_writer = SummaryWriter()
-
-    train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(args.data_path)
+    #分离训练集和验证集
+    # train_images_path, train_images_label, val_images_path, val_images_label = read_split_data(args.data_path)
 
     data_transform = {
         "train": transforms.Compose([transforms.RandomResizedCrop(224),
@@ -34,32 +40,39 @@ def main(args):
                                    transforms.ToTensor(),
                                    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])}
 
-    # 实例化训练数据集
-    train_dataset = MyDataSet(images_path=train_images_path,
-                              images_class=train_images_label,
-                              transform=data_transform["train"])
+    train_dataset = torchvision.datasets.CIFAR10(root='./cifar10', train=True, download=True,
+                                                 transform=data_transform["train"])
+    val_dataset = torchvision.datasets.CIFAR10(root='./cifar10', train=False, download=True,
+                                                 transform=data_transform["val"])
 
-    # 实例化验证数据集
-    val_dataset = MyDataSet(images_path=val_images_path,
-                            images_class=val_images_label,
-                            transform=data_transform["val"])
+    # # 实例化训练数据集
+    # train_dataset = MyDataSet(images_path=train_images_path,
+    #                           images_class=train_images_label,
+    #                           transform=data_transform["train"])
+    #
+    # # 实例化验证数据集
+    # val_dataset = MyDataSet(images_path=val_images_path,
+    #                         images_class=val_images_label,
+    #                         transform=data_transform["val"])
 
-    batch_size = args.batch_size
+    batch_size = args.batch_size  #默认是8张一批
     nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
     print('Using {} dataloader workers every process'.format(nw))
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
                                                pin_memory=True,
-                                               num_workers=nw,
-                                               collate_fn=train_dataset.collate_fn)
+                                               num_workers=nw
+                                               # collate_fn=train_dataset.collate_fn
+                                               )
 
     val_loader = torch.utils.data.DataLoader(val_dataset,
                                              batch_size=batch_size,
                                              shuffle=False,
                                              pin_memory=True,
-                                             num_workers=nw,
-                                             collate_fn=val_dataset.collate_fn)
+                                             num_workers=nw
+                                             # collate_fn=val_dataset.collate_fn
+                                             )
 
     model = create_model(num_classes=args.num_classes, has_logits=False).to(device)
 
@@ -95,7 +108,7 @@ def main(args):
                                                 device=device,
                                                 epoch=epoch)
 
-        scheduler.step()
+        scheduler.step()#应用梯度
 
         # validate
         val_loss, val_acc = evaluate(model=model,
@@ -110,21 +123,23 @@ def main(args):
         tb_writer.add_scalar(tags[3], val_acc, epoch)
         tb_writer.add_scalar(tags[4], optimizer.param_groups[0]["lr"], epoch)
 
-        torch.save(model.state_dict(), "./weights/model-{}.pth".format(epoch))
+        import time
+        filename = "./weights/model-{}.pth".format(int(time.time()))
+        torch.save(model.state_dict(), filename)
+        # torch.save(model.state_dict(), "./weights/model-{}.pth".format(epoch))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=5)
     parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--batch-size', type=int, default=8)
+    parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--lrf', type=float, default=0.01)
 
     # 数据集所在根目录
     # https://storage.googleapis.com/download.tensorflow.org/example_images/flower_photos.tgz
-    parser.add_argument('--data-path', type=str,
-                        default="/data/flower_photos")
+    parser.add_argument('--data-path', type=str, default="./data/flower_photos")
     parser.add_argument('--model-name', default='', help='create model name')
 
     # 预训练权重路径，如果不想载入就设置为空字符
